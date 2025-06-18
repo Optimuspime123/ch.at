@@ -1,0 +1,12 @@
+# User-provided LLM backend
+llm.go
+
+# Compiled binaries
+chat
+selftest
+
+# SSH host key
+ssh_host_key
+
+# OS files
+.DS_Store
