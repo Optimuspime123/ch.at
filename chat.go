@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-// Configuration - edit and recompile to change (Suckless style)
+// Configuration - edit source code and recompile to change settings
 // To disable a service: set its port to 0 or delete its .go file
 const (
 	HTTP_PORT   = 80    // Web interface (set to 0 to disable)

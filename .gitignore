@@ -2,8 +2,8 @@
 llm.go
 
 # Compiled binaries
-chat
-selftest
+/chat
+/selftest
 
 # SSH host key
 ssh_host_key

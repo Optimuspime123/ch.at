@@ -1,6 +1,6 @@
 # ch.at - Universal Basic Chat
 
-Minimalist LLM chat accessible through HTTP, SSH, DNS, and API. One binary, no JavaScript, no tracking.
+A lightweight language model chat service accessible through HTTP, SSH, DNS, and API. One binary, no JavaScript, no tracking.
 
 ## Usage
 
@@ -24,11 +24,11 @@ curl ch.at:8080/v1/chat/completions
 - ~1,100 lines of Go, one external dependency
 - Single static binary
 - No accounts, no logs, no tracking
-- Suckless-style configuration (edit source)
+- Configuration through source code (edit and recompile)
 
 ## Privacy
 
-We take a "can't be evil" approach:
+Privacy by design:
 
 - No authentication or user tracking
 - No server-side conversation storage
