@@ -31,7 +31,7 @@ const minimalHTML = `<!DOCTYPE html>
         <textarea name="h" style="display:none">%s</textarea>
         <input type="submit" value="Send">
     </form>
-    <p><a href="/">Clear History</a> • <a href="https://github.com/ch-at/ch.at#readme">About</a></p>
+    <p><a href="/">Clear History</a> • <a href="https://github.com/Deep-ai-inc/ch.at#readme">About</a></p>
 </body>
 </html>`
 

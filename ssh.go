@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"strings"
@@ -120,7 +119,8 @@ func (s *SSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Requ
 	}()
 
 	fmt.Fprintf(channel, "Welcome to ch.at\r\n")
-	fmt.Fprintf(channel, "Type your message and press Enter. Type 'exit' to quit.\r\n")
+	fmt.Fprintf(channel, "Type your message and press Enter.\r\n")
+	fmt.Fprintf(channel, "Exit: type 'exit', Ctrl+C, or Ctrl+D\r\n")
 	fmt.Fprintf(channel, "> ")
 
 	// Read line by line
@@ -130,24 +130,25 @@ func (s *SSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Requ
 	for {
 		n, err := channel.Read(buf)
 		if err != nil {
-			if err != io.EOF {
-				// Read error - exit session
-			}
+			// EOF (Ctrl+D) or other error - exit cleanly
 			return
 		}
 
 		data := string(buf[:n])
 		for _, ch := range data {
-			if ch == '\n' || ch == '\r' {
+			if ch == 3 { // Ctrl+C
+				fmt.Fprintf(channel, "^C\r\n")
+				return
+			} else if ch == '\n' || ch == '\r' {
+				fmt.Fprintf(channel, "\r\n") // Echo newline
 				if input.Len() > 0 {
 					query := strings.TrimSpace(input.String())
 					input.Reset()
 
 					if query == "exit" {
-						fmt.Fprintf(channel, "Goodbye!\r\n")
 						return
 					}
-
+					
 					// Get LLM response with streaming
 					ctx := context.Background()
 					stream, err := getLLMResponseStream(ctx, query)
@@ -164,9 +165,23 @@ func (s *SSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Requ
 							f.Flush()
 						}
 					}
+					
 					fmt.Fprintf(channel, "\r\n> ")
 				}
+			} else if ch == '\b' || ch == 127 { // Backspace or Delete
+				if input.Len() > 0 {
+					// Remove last character from buffer
+					str := input.String()
+					input.Reset()
+					if len(str) > 0 {
+						input.WriteString(str[:len(str)-1])
+						// Move cursor back, overwrite with space, move back again
+						fmt.Fprintf(channel, "\b \b")
+					}
+				}
 			} else {
+				// Echo the character back to the user
+				fmt.Fprintf(channel, "%c", ch)
 				input.WriteRune(ch)
 			}
 		}
