@@ -1,28 +1,16 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
 
-type SSHServer struct {
-	port int
-}
-
-func NewSSHServer(port int) *SSHServer {
-	return &SSHServer{port: port}
-}
-
-func (s *SSHServer) Start() error {
+func StartSSHServer(port int) error {
 	// SSH server configuration
 	config := &ssh.ServerConfig{
 		NoClientAuth: true, // Anonymous access
@@ -36,13 +24,13 @@ func (s *SSHServer) Start() error {
 	config.AddHostKey(privateKey)
 
 	// Listen for connections
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
 
-	fmt.Printf("SSH server listening on :%d\n", s.port)
+	fmt.Printf("SSH server listening on :%d\n", port)
 
 	// Simple connection limiting
 	sem := make(chan struct{}, 100) // Max 100 concurrent SSH connections
@@ -58,7 +46,7 @@ func (s *SSHServer) Start() error {
 		case sem <- struct{}{}:
 			go func() {
 				defer func() { <-sem }()
-				s.handleConnection(conn, config)
+				handleConnection(conn, config)
 			}()
 		default:
 			// Too many connections
@@ -67,12 +55,12 @@ func (s *SSHServer) Start() error {
 	}
 }
 
-func (s *SSHServer) handleConnection(netConn net.Conn, config *ssh.ServerConfig) {
+func handleConnection(netConn net.Conn, config *ssh.ServerConfig) {
 	defer netConn.Close()
 
 	// Rate limiting
-	if !rateLimiter.Allow(netConn.RemoteAddr().String()) {
-		netConn.Write([]byte("Rate limit exceeded. Please try again later.\r\n"))
+	if !rateLimitAllow(netConn.RemoteAddr().String()) {
+		netConn.Write([]byte("Rate limit exceeded\r\n"))
 		return
 	}
 
@@ -99,11 +87,11 @@ func (s *SSHServer) handleConnection(netConn net.Conn, config *ssh.ServerConfig)
 			continue
 		}
 
-		go s.handleSession(channel, requests)
+		go handleSession(channel, requests)
 	}
 }
 
-func (s *SSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Request) {
+func handleSession(channel ssh.Channel, requests <-chan *ssh.Request) {
 	defer channel.Close()
 
 	// Handle session requests
@@ -150,34 +138,29 @@ func (s *SSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Requ
 					}
 					
 					// Get LLM response with streaming
-					ctx := context.Background()
-					stream, err := getLLMResponseStream(ctx, query)
-					if err != nil {
-						fmt.Fprintf(channel, "Error: %v\r\n", err)
-						fmt.Fprintf(channel, "> ")
-						continue
-					}
+					ch := make(chan string)
+					go func() {
+						if _, err := LLM(query, ch); err != nil {
+							fmt.Fprintf(channel, "Error: %s\r\n", err.Error())
+						}
+					}()
 					
 					// Stream response as it arrives
-					for chunk := range stream {
+					for chunk := range ch {
 						fmt.Fprint(channel, chunk)
-						if f, ok := channel.(interface{ Flush() }); ok {
-							f.Flush()
-						}
 					}
 					
 					fmt.Fprintf(channel, "\r\n> ")
 				}
 			} else if ch == '\b' || ch == 127 { // Backspace or Delete
 				if input.Len() > 0 {
-					// Remove last character from buffer
+					// Remove last rune (UTF-8 safe)
 					str := input.String()
+					runes := []rune(str)
 					input.Reset()
-					if len(str) > 0 {
-						input.WriteString(str[:len(str)-1])
-						// Move cursor back, overwrite with space, move back again
-						fmt.Fprintf(channel, "\b \b")
-					}
+					input.WriteString(string(runes[:len(runes)-1]))
+					// Move cursor back, overwrite with space, move back again
+					fmt.Fprintf(channel, "\b \b")
 				}
 			} else {
 				// Echo the character back to the user
@@ -188,30 +171,13 @@ func (s *SSHServer) handleSession(channel ssh.Channel, requests <-chan *ssh.Requ
 	}
 }
 
-// getOrCreateHostKey loads existing key or generates new one
+// getOrCreateHostKey generates a new ephemeral host key
 func getOrCreateHostKey() (ssh.Signer, error) {
-	keyPath := "ssh_host_key"
-	
-	// Try to load existing key
-	if keyData, err := os.ReadFile(keyPath); err == nil {
-		return ssh.ParsePrivateKey(keyData)
-	}
-
-	// Generate new ephemeral key (more private but less convenient)
+	// Generate new ephemeral key each time
 	// Users will see "host key changed" warnings on each restart
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
-	}
-
-	// Optionally save for convenience (comment out for max privacy)
-	keyData := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})
-	
-	if err := os.WriteFile(keyPath, keyData, 0600); err != nil {
-		// Couldn't save host key - continue anyway
 	}
 
 	return ssh.NewSignerFromKey(key)

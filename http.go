@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -35,31 +34,24 @@ const minimalHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-type HTTPServer struct {
-	port int
-}
+func StartHTTPServer(port int) error {
+	http.HandleFunc("/", handleRoot)
+	http.HandleFunc("/v1/chat/completions", handleChatCompletions)
 
-func NewHTTPServer(port int) *HTTPServer {
-	return &HTTPServer{port: port}
-}
-
-func (s *HTTPServer) Start() error {
-	http.HandleFunc("/", s.handleRoot)
-
-	addr := fmt.Sprintf(":%d", s.port)
+	addr := fmt.Sprintf(":%d", port)
 	fmt.Printf("HTTP server listening on %s\n", addr)
 	return http.ListenAndServe(addr, nil)
 }
 
-func (s *HTTPServer) StartTLS(port int, certFile, keyFile string) error {
+func StartHTTPSServer(port int, certFile, keyFile string) error {
 	addr := fmt.Sprintf(":%d", port)
 	fmt.Printf("HTTPS server listening on %s\n", addr)
 	return http.ListenAndServeTLS(addr, certFile, keyFile, nil)
 }
 
-func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if !rateLimiter.Allow(r.RemoteAddr) {
-		http.Error(w, "Rate limit exceeded. Please try again later.", http.StatusTooManyRequests)
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+	if !rateLimitAllow(r.RemoteAddr) {
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 
@@ -90,12 +82,13 @@ func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 			query = string(body)
 		}
 	} else {
-		// GET request - no history
 		query = r.URL.Query().Get("q")
+		// Also support path-based queries like /what-is-go
+		if query == "" && r.URL.Path != "/" {
+			query = strings.ReplaceAll(strings.TrimPrefix(r.URL.Path, "/"), "-", " ")
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
 
 	if query != "" {
 		// Build prompt with history
@@ -104,9 +97,9 @@ func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 			prompt = history + "Q: " + query
 		}
 
-		response, err := getLLMResponse(ctx, prompt)
+		response, err := LLM(prompt, nil)
 		if err != nil {
-			content = fmt.Sprintf("Error: %s", err.Error())
+			content = err.Error()
 			errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
 			jsonResponse = string(errJSON)
 		} else {
@@ -126,13 +119,10 @@ func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 			}
 			// Trim history if too long (UTF-8 safe)
 			if len(content) > 2048 {
-				// UTF-8 continuation bytes start with 10xxxxxx (0x80-0xBF)
-				// Find a character boundary to avoid splitting multi-byte chars
-				for i := len(content) - 2048; i < len(content)-2040; i++ {
-					if content[i]&0xC0 != 0x80 { // Not a continuation byte
-						content = content[i:]
-						break
-					}
+				// Keep roughly last 600 characters (UTF-8 safe)
+				runes := []rune(content)
+				if len(runes) > 600 {
+					content = string(runes[len(runes)-600:])
 				}
 			}
 		}
@@ -141,26 +131,33 @@ func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accept := r.Header.Get("Accept")
+	wantsJSON := strings.Contains(accept, "application/json")
+	wantsHTML := strings.Contains(accept, "text/html")
+	wantsStream := strings.Contains(accept, "text/event-stream")
 
 	// Stream for curl when requested
-	if strings.Contains(accept, "text/event-stream") && query != "" {
+	if wantsStream && query != "" {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-
+		
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 			return
 		}
 
-		stream, err := getLLMResponseStream(ctx, prompt)
-		if err != nil {
-			fmt.Fprintf(w, "data: Error: %s\n\n", err.Error())
-			return
-		}
+		// Stream response
+		ch := make(chan string)
+		go func() {
+			if _, err := LLM(prompt, ch); err != nil {
+				// Send error as SSE event
+				fmt.Fprintf(w, "data: Error: %s\n\n", err.Error())
+				flusher.Flush()
+			}
+		}()
 
-		for chunk := range stream {
+		for chunk := range ch {
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 			flusher.Flush()
 		}
@@ -169,10 +166,10 @@ func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return JSON for API requests, HTML for browsers, plain text for curl
-	if strings.Contains(accept, "application/json") && jsonResponse != "" {
+	if wantsJSON && jsonResponse != "" {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		fmt.Fprint(w, jsonResponse)
-	} else if strings.Contains(accept, "text/html") {
+	} else if wantsHTML {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprintf(w, minimalHTML, html.EscapeString(content), html.EscapeString(content))
 	} else {
@@ -181,3 +178,119 @@ func (s *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, content)
 	}
 }
+
+type ChatRequest struct {
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
+	Stream   bool      `json:"stream,omitempty"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ChatResponse struct {
+	ID      string   `json:"id"`
+	Object  string   `json:"object"`
+	Created int64    `json:"created"`
+	Model   string   `json:"model"`
+	Choices []Choice `json:"choices"`
+}
+
+type Choice struct {
+	Index   int     `json:"index"`
+	Message Message `json:"message"`
+}
+
+func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if !rateLimitAllow(r.RemoteAddr) {
+		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Convert messages to format for LLM
+	messages := make([]map[string]string, len(req.Messages))
+	for i, msg := range req.Messages {
+		messages[i] = map[string]string{
+			"role":    msg.Role,
+			"content": msg.Content,
+		}
+	}
+	
+	
+	if req.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			return
+		}
+		
+		// Stream response
+		ch := make(chan string)
+		go LLM(messages, ch)
+		
+		for chunk := range ch {
+			resp := map[string]interface{}{
+				"id": fmt.Sprintf("chatcmpl-%d", time.Now().Unix()),
+				"object": "chat.completion.chunk",
+				"created": time.Now().Unix(),
+				"model": req.Model,
+				"choices": []map[string]interface{}{{
+					"index": 0,
+					"delta": map[string]string{"content": chunk},
+				}},
+			}
+			data, err := json.Marshal(resp)
+			if err != nil {
+				fmt.Fprintf(w, "data: Failed to marshal response\n\n")
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		
+	} else {
+		response, err := LLM(messages, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		chatResp := ChatResponse{
+			ID:      fmt.Sprintf("chatcmpl-%d", time.Now().Unix()),
+			Object:  "chat.completion",
+			Created: time.Now().Unix(),
+			Model:   req.Model,
+			Choices: []Choice{{
+				Index: 0,
+				Message: Message{
+					Role:    "assistant",
+					Content: response,
+				},
+			}},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(chatResp)
+	}
+}
+
+
+

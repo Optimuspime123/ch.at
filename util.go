@@ -4,115 +4,37 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
-// Simple in-memory rate limiter
-// To disable: Remove NewRateLimiter calls from protocol files
-type RateLimiter struct {
-	requests map[string][]time.Time
-	mu       sync.Mutex
-	limit    int           // requests per window
-	window   time.Duration // time window
-	stopCh   chan struct{} // for cleanup goroutine
-}
+// Rate limiters per IP with automatic cleanup
+var (
+	limiters sync.Map
+	lastClean = time.Now()
+)
 
-func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
-	r := &RateLimiter{
-		requests: make(map[string][]time.Time),
-		limit:    limit,
-		window:   window,
-		stopCh:   make(chan struct{}),
+func rateLimitAllow(addr string) bool {
+	// Extract just the IP
+	ip := addr
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		ip = host
 	}
 	
-	// Start cleanup goroutine
-	go r.cleanup()
-	
-	return r
-}
-
-func (r *RateLimiter) Allow(addr string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Extract IP without port (addr might be "1.2.3.4:5678" or just "1.2.3.4")
-	ip, _, _ := net.SplitHostPort(addr)
-	if ip == "" {
-		ip = addr // addr was already just an IP
-	}
-
-	now := time.Now()
-	cutoff := now.Add(-r.window)
-
-	// Get or create request list
-	requests := r.requests[ip]
-	
-	// Remove old requests
-	valid := []time.Time{}
-	for _, t := range requests {
-		if t.After(cutoff) {
-			valid = append(valid, t)
-		}
-	}
-
-	// Check limit
-	if len(valid) >= r.limit {
-		return false
-	}
-
-	// Add new request
-	valid = append(valid, now)
-	r.requests[ip] = valid
-	
-	return true
-}
-
-// Periodic cleanup to prevent unbounded memory growth
-func (r *RateLimiter) cleanup() {
-	ticker := time.NewTicker(r.window)
-	defer ticker.Stop()
-	
-	for {
-		select {
-		case <-ticker.C:
-			r.mu.Lock()
-			now := time.Now()
-			cutoff := now.Add(-r.window)
-			
-			// Remove IPs with no recent requests
-			for ip, requests := range r.requests {
-				valid := []time.Time{}
-				for _, t := range requests {
-					if t.After(cutoff) {
-						valid = append(valid, t)
-					}
-				}
-				
-				if len(valid) == 0 {
-					delete(r.requests, ip)
-				} else {
-					r.requests[ip] = valid
-				}
+	// Clean old entries every hour
+	if time.Since(lastClean) > time.Hour {
+		lastClean = time.Now()
+		limiters.Range(func(key, value interface{}) bool {
+			if l, ok := value.(*rate.Limiter); ok && l.Tokens() >= 10 {
+				limiters.Delete(key)
 			}
-			r.mu.Unlock()
-			
-		case <-r.stopCh:
-			return
-		}
+			return true
+		})
 	}
+	
+	// Get or create limiter for this IP
+	limiterInterface, _ := limiters.LoadOrStore(ip, rate.NewLimiter(100.0/60, 10))
+	limiter := limiterInterface.(*rate.Limiter)
+	
+	return limiter.Allow()
 }
-
-// Stop the rate limiter cleanup
-func (r *RateLimiter) Stop() {
-	select {
-	case <-r.stopCh:
-		// Already closed
-	default:
-		close(r.stopCh)
-	}
-}
-
-// Add other shared utilities here as needed
-// Each should be self-contained and optional
-
-// Global rate limiter instance
-var rateLimiter = NewRateLimiter(100, time.Minute) // 100 requests per minute per IP

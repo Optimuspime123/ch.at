@@ -9,22 +9,24 @@ A lightweight language model chat service accessible through HTTP, SSH, DNS, and
 open https://ch.at
 
 # Terminal
-curl ch.at/?q=hello
+curl ch.at/?q=hello             # Query parameter (handles special chars)
+curl ch.at/what-is-rust         # Path-based (cleaner URLs, hyphens become spaces)
 ssh ch.at
 
 # DNS tunneling
 dig what-is-2+2.ch.at TXT
 
 # API (OpenAI-compatible)
-curl ch.at:8080/v1/chat/completions
+curl ch.at/v1/chat/completions
 ```
 
 ## Design
 
-- ~1,100 lines of Go, one external dependency
+- ~1,200 lines of Go, three dependencies
 - Single static binary
 - No accounts, no logs, no tracking
 - Configuration through source code (edit and recompile)
+
 
 ## Privacy
 
@@ -41,72 +43,54 @@ Privacy by design:
 
 ## Installation
 
-Create `llm.go` (gitignored):
+### Quick Start
 
-```go
-// llm.go - Create this file (it's gitignored)
-package main
-
-import (
-	"bufio"
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
-)
-
-func getLLMResponse(ctx context.Context, prompt string) (string, error) {
-	var response strings.Builder
-	stream, err := getLLMResponseStream(ctx, prompt)
-	if err != nil {
-		return "", err
-	}
-	for chunk := range stream {
-		response.WriteString(chunk)
-	}
-	return response.String(), nil
-}
-
-func getLLMResponseStream(ctx context.Context, prompt string) (<-chan string, error) {
-	endpoint := "https://api.openai.com/v1/chat/completions"
-	key := "YOUR-OPENAI-API-KEY-HERE"  // Replace with your key
-	
-	payload := map[string]interface{}{
-		"model": "gpt-4o",
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
-		"stream": true,
-	}
-	
-	// ... rest of implementation
-}
-```
-
-Then build:
 ```bash
+# Copy the example LLM configuration (llm.go is gitignored)
+cp llm.go.example llm.go
+
+# Edit llm.go and add your API key
+# Supports OpenAI, Anthropic Claude, or local models (Ollama)
+
+# For HTTPS, you'll need cert.pem and key.pem files:
+# Option 1: Use Let's Encrypt (recommended for production)
+# Option 2: Use your existing certificates
+# Option 3: Self-signed for testing:
+#   openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+
+# Build and run
 go build -o chat .
 sudo ./chat  # Needs root for ports 80/443/53/22
-
-# Optional: build selftest tool
-go build -o selftest ./cmd/selftest
 ```
 
-To run on high ports, edit the constants in `chat.go` and rebuild:
+### Testing
+
+```bash
+# Build the self-test tool
+go build -o selftest ./cmd/selftest
+
+# Run all protocol tests
+./selftest http://localhost
+
+# Test specific queries
+curl localhost/what-is-go
+curl localhost/?q=hello
+```
+
+### High Port Configuration
+
+To run without sudo, edit the constants in `chat.go`:
+
 ```go
 const (
     HTTP_PORT   = 8080  // Instead of 80
     HTTPS_PORT  = 0     // Disabled
     SSH_PORT    = 2222  // Instead of 22
     DNS_PORT    = 0     // Disabled
-    OPENAI_PORT = 8080  // Same as HTTP
 )
 ```
 
-Then:
+Then build:
 ```bash
 go build -o chat .
 ./chat  # No sudo needed for high ports
@@ -120,7 +104,7 @@ go build -o chat .
 Edit constants in source files:
 - Ports: `chat.go` (set to 0 to disable)
 - Rate limits: `util.go`
-- Remove protocol: Delete its .go file
+- Remove service: Delete its .go file
 
 ## Limitations
 
