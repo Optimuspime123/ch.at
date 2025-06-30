@@ -99,6 +99,44 @@ go build -o chat .
 ./selftest http://localhost:8080
 ```
 
+### Deployment
+
+#### Nanos Unikernel (Recommended)
+
+Deploy as a minimal VM with just your app:
+
+```bash
+# Install OPS
+curl https://ops.city/get.sh -sSfL | sh
+
+# Create ops.json with your ports
+echo '{"RunConfig":{"Ports":["80","443","22","53"]}}' > ops.json
+
+# Test locally
+CGO_ENABLED=0 GOOS=linux go build
+ops run chat -c ops.json
+
+# Deploy to AWS
+ops image create chat -c ops.json -t aws
+ops instance create chat -t aws
+
+# Deploy to Google Cloud
+ops image create chat -c ops.json -t gcp
+ops instance create chat -t gcp
+```
+
+#### Traditional Deployment
+
+```bash
+# Systemd service
+sudo cp chat /usr/local/bin/
+sudo systemctl enable chat.service
+
+# Docker
+docker build -t chat .
+docker run -p 80:80 -p 443:443 -p 22:22 -p 53:53/udp chat
+```
+
 ## Configuration
 
 Edit constants in source files:

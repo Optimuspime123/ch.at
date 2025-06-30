@@ -1,6 +1,9 @@
 # User-provided LLM backend
 llm.go
 
+# User-specific deployment config
+ops.json
+
 # Compiled binaries
 /chat
 /selftest
