@@ -30,8 +30,6 @@ func StartSSHServer(port int) error {
 	}
 	defer listener.Close()
 
-	fmt.Printf("SSH server listening on :%d\n", port)
-
 	// Simple connection limiting
 	sem := make(chan struct{}, 100) // Max 100 concurrent SSH connections
 	

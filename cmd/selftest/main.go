@@ -96,6 +96,8 @@ func main() {
 
 	baseURL := strings.TrimSuffix(os.Args[1], "/")
 	
+	sshPort := "22"
+	
 	// Extract hostname from URL for SSH/DNS tests
 	hostname := "localhost"
 	if u, err := url.Parse(baseURL); err == nil && u.Hostname() != "" {
@@ -225,7 +227,7 @@ func main() {
 		sshHost = "127.0.0.1"
 	}
 	
-	sshClient, err := ssh.Dial("tcp", sshHost+":22", config)
+	sshClient, err := ssh.Dial("tcp", sshHost+":"+sshPort, config)
 	if err == nil {
 		defer sshClient.Close()
 		
@@ -317,7 +319,14 @@ func main() {
 	// Test 7: DNS protocol
 	fmt.Print("Testing DNS protocol... ")
 	// Run dig command to query the DNS server
-	cmd := exec.Command("dig", "+short", "@127.0.0.1", "-p", "53", "repeat-verbatim-the-word-pass.ch.at", "TXT")
+	// For localhost, use the query directly without domain suffix
+	var queryDomain string
+	if hostname == "localhost" || hostname == "127.0.0.1" {
+		queryDomain = "repeat-verbatim-the-word-pass"
+	} else {
+		queryDomain = "repeat-verbatim-the-word-pass." + hostname
+	}
+	cmd := exec.Command("dig", "+short", "@"+hostname, "-p", "53", queryDomain, "TXT")
 	output, err := cmd.Output()
 	if err != nil {
 		fmt.Printf("✗ (dig command failed: %v)\n", err)

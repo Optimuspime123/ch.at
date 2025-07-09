@@ -39,13 +39,11 @@ func StartHTTPServer(port int) error {
 	http.HandleFunc("/v1/chat/completions", handleChatCompletions)
 
 	addr := fmt.Sprintf(":%d", port)
-	fmt.Printf("HTTP server listening on %s\n", addr)
 	return http.ListenAndServe(addr, nil)
 }
 
 func StartHTTPSServer(port int, certFile, keyFile string) error {
 	addr := fmt.Sprintf(":%d", port)
-	fmt.Printf("HTTPS server listening on %s\n", addr)
 	return http.ListenAndServeTLS(addr, certFile, keyFile, nil)
 }
 

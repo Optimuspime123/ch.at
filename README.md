@@ -14,7 +14,7 @@ curl ch.at/what-is-rust         # Path-based (cleaner URLs, hyphens become space
 ssh ch.at
 
 # DNS tunneling
-dig what-is-2+2.ch.at TXT
+dig @ch.at "what-is-2+2" TXT
 
 # API (OpenAI-compatible)
 curl ch.at/v1/chat/completions
@@ -146,7 +146,7 @@ Edit constants in source files:
 
 ## Limitations
 
-- **DNS**: Responses limited to ~500 chars due to protocol constraints
+- **DNS**: Responses limited to ~500 bytes. Complex queries may time out after 4s. DNS queries automatically request concise, plain-text responses
 - **History**: Limited to 2KB in web interface to prevent URL overflow
 - **Rate limiting**: Basic IP-based limiting to prevent abuse
 - **No encryption**: SSH is encrypted, but HTTP/DNS are not
