@@ -32,14 +32,14 @@ func StartSSHServer(port int) error {
 
 	// Simple connection limiting
 	sem := make(chan struct{}, 100) // Max 100 concurrent SSH connections
-	
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			// Connection error - continue accepting others
 			continue
 		}
-		
+
 		select {
 		case sem <- struct{}{}:
 			go func() {
@@ -134,7 +134,7 @@ func handleSession(channel ssh.Channel, requests <-chan *ssh.Request) {
 					if query == "exit" {
 						return
 					}
-					
+
 					// Get LLM response with streaming
 					ch := make(chan string)
 					go func() {
@@ -142,12 +142,12 @@ func handleSession(channel ssh.Channel, requests <-chan *ssh.Request) {
 							fmt.Fprintf(channel, "Error: %s\r\n", err.Error())
 						}
 					}()
-					
+
 					// Stream response as it arrives
 					for chunk := range ch {
 						fmt.Fprint(channel, chunk)
 					}
-					
+
 					fmt.Fprintf(channel, "\r\n> ")
 				}
 			} else if ch == '\b' || ch == 127 { // Backspace or Delete
@@ -180,3 +180,4 @@ func getOrCreateHostKey() (ssh.Signer, error) {
 
 	return ssh.NewSignerFromKey(key)
 }
+

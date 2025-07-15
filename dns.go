@@ -40,15 +40,14 @@ func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		name := strings.TrimSuffix(strings.TrimSuffix(q.Name, "."), ".ch.at")
 		prompt := strings.ReplaceAll(name, "-", " ")
-		
-		
+
 		// Optimize prompt for DNS constraints
 		dnsPrompt := "Answer in 500 characters or less, no markdown formatting: " + prompt
 
 		// Stream LLM response with hard deadline
 		ch := make(chan string)
 		done := make(chan bool)
-		
+
 		go func() {
 			if _, err := LLM(dnsPrompt, ch); err != nil {
 				select {
@@ -62,8 +61,7 @@ func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		var response strings.Builder
 		deadline := time.After(4 * time.Second) // Safe middle ground for DNS clients
 		channelClosed := false
-		
-		
+
 		for {
 			select {
 			case chunk, ok := <-ch:
@@ -94,7 +92,6 @@ func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			// We hit the exact limit but stream is still going
 			finalResponse = finalResponse[:497] + "..."
 		}
-		
 
 		// Split response into 255-byte chunks for DNS TXT records
 		var txtStrings []string
@@ -105,7 +102,7 @@ func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 			}
 			txtStrings = append(txtStrings, finalResponse[i:end])
 		}
-		
+
 		txt := &dns.TXT{
 			Hdr: dns.RR_Header{
 				Name:   q.Name,
@@ -120,3 +117,4 @@ func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 	w.WriteMsg(m)
 }
+

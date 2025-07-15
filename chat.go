@@ -9,7 +9,6 @@ const (
 	DNS_PORT   = 53  // DNS TXT chat (set to 0 to disable)
 )
 
-
 func main() {
 	// SSH Server
 	if SSH_PORT > 0 {
@@ -17,14 +16,14 @@ func main() {
 			StartSSHServer(SSH_PORT)
 		}()
 	}
-	
+
 	// DNS Server
 	if DNS_PORT > 0 {
 		go func() {
 			StartDNSServer(DNS_PORT)
 		}()
 	}
-	
+
 	// HTTP/HTTPS Server
 	// TODO: Implement graceful shutdown with signal handling
 	if HTTP_PORT > 0 || HTTPS_PORT > 0 {
@@ -33,7 +32,7 @@ func main() {
 				StartHTTPSServer(HTTPS_PORT, "cert.pem", "key.pem")
 			}()
 		}
-		
+
 		if HTTP_PORT > 0 {
 			StartHTTPServer(HTTP_PORT)
 		} else {
@@ -45,3 +44,4 @@ func main() {
 		select {}
 	}
 }
+
