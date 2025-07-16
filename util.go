@@ -38,4 +38,3 @@ func rateLimitAllow(addr string) bool {
 
 	return limiter.Allow()
 }
-

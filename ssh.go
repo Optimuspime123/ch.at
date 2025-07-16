@@ -180,4 +180,3 @@ func getOrCreateHostKey() (ssh.Signer, error) {
 
 	return ssh.NewSignerFromKey(key)
 }
-
