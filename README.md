@@ -9,7 +9,8 @@ A lightweight language model chat service accessible through HTTP, SSH, DNS, and
 open https://ch.at
 
 # Terminal
-curl ch.at/?q=hello             # Query parameter (handles special chars)
+curl ch.at/?q=hello             # Streams response with curl's default buffering
+curl -N ch.at/?q=hello          # Streams response without buffering (smoother)
 curl ch.at/what-is-rust         # Path-based (cleaner URLs, hyphens become spaces)
 ssh ch.at
 
@@ -22,7 +23,7 @@ curl ch.at/v1/chat/completions
 
 ## Design
 
-- ~1,200 lines of Go, three dependencies
+- ~1,300 lines of Go, three direct dependencies
 - Single static binary
 - No accounts, no logs, no tracking
 - Configuration through source code (edit and recompile)
@@ -147,7 +148,7 @@ Edit constants in source files:
 ## Limitations
 
 - **DNS**: Responses limited to ~500 bytes. Complex queries may time out after 4s. DNS queries automatically request concise, plain-text responses
-- **History**: Limited to 2KB in web interface to prevent URL overflow
+- **History**: Limited to 64KB to ensure compatibility across systems
 - **Rate limiting**: Basic IP-based limiting to prevent abuse
 - **No encryption**: SSH is encrypted, but HTTP/DNS are not
 

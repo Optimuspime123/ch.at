@@ -149,6 +149,36 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Plain text streaming for curl
+		userAgent := r.Header.Get("User-Agent")
+		isCurl := strings.Contains(userAgent, "curl") && !wantsHTML && !wantsJSON && !wantsStream
+		if isCurl {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("Transfer-Encoding", "chunked")
+			w.Header().Set("X-Accel-Buffering", "no")
+			flusher := w.(http.Flusher)
+
+			fmt.Fprintf(w, "Q: %s\nA: ", query)
+			flusher.Flush()
+
+			ch := make(chan string)
+			go func() {
+				if _, err := LLM(prompt, ch); err != nil {
+					ch <- err.Error()
+					close(ch)
+				}
+			}()
+
+			response := ""
+			for chunk := range ch {
+				fmt.Fprint(w, chunk)
+				response += chunk
+				flusher.Flush()
+			}
+			fmt.Fprint(w, "\n")
+			return
+		}
+
 		response, err := LLM(prompt, nil)
 		if err != nil {
 			content = err.Error()
@@ -333,4 +363,3 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(chatResp)
 	}
 }
-
