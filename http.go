@@ -14,6 +14,7 @@ const htmlHeader = `<!DOCTYPE html>
 <html>
 <head>
     <title>ch.at</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { text-align: center; margin: 40px; }
         pre { text-align: left; max-width: 600px; margin: 20px auto; padding: 20px; 
@@ -23,7 +24,8 @@ const htmlHeader = `<!DOCTYPE html>
 </head>
 <body>
     <h1>ch.at</h1>
-    <p><i>pronounced "ch-dot-at"</i></p>
+    <p>Universal Basic Chat</p>
+    <p><small><i>pronounced "ch-dot-at"</i></small></p>
     <pre>`
 
 const htmlFooterTemplate = `</pre>
@@ -32,7 +34,11 @@ const htmlFooterTemplate = `</pre>
         <input type="submit" value="Send">
         <textarea name="h" style="display:none">%s</textarea>
     </form>
-    <p><a href="/">Clear History</a> • <a href="https://github.com/Deep-ai-inc/ch.at#readme">About</a></p>
+    <p><a href="/">New Chat</a></p>
+    <p><small>
+        Also available: ssh ch.at • curl ch.at/?q=hello • dig @ch.at "question" TXT<br>
+        No logs • No accounts • Free software • <a href="https://github.com/Deep-ai-inc/ch.at">GitHub</a>
+    </small></p>
 </body>
 </html>`
 
@@ -247,6 +253,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, htmlHeader)
 		fmt.Fprint(w, html.EscapeString(content))
+
 		fmt.Fprintf(w, htmlFooterTemplate, html.EscapeString(content))
 	} else {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
