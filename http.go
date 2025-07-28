@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const htmlPromptPrefix = "You are a helpful assistant. Use HTML formatting instead of markdown (no CSS or style attributes): "
+
 const htmlHeader = `<!DOCTYPE html>
 <html>
 <head>
@@ -17,18 +19,19 @@ const htmlHeader = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { text-align: center; margin: 40px; }
-        pre { text-align: left; max-width: 600px; margin: 20px auto; padding: 20px; 
-              white-space: pre-wrap; word-wrap: break-word; }
+        .chat { text-align: left; max-width: 600px; margin: 20px auto; padding: 20px; }
+        .q { margin-bottom: 10px; }
+        .a { margin-bottom: 20px; }
         input[type="text"] { width: 300px; }
     </style>
 </head>
 <body>
     <h1>ch.at</h1>
-    <p>Universal Basic Chat</p>
+    <p>Universal Basic Intelligence</p>
     <p><small><i>pronounced "ch-dot-at"</i></small></p>
-    <pre>`
+    <div class="chat">`
 
-const htmlFooterTemplate = `</pre>
+const htmlFooterTemplate = `</div>
     <form method="POST" action="/">
         <input type="text" name="q" placeholder="Type your message..." autofocus>
         <input type="submit" value="Send">
@@ -112,30 +115,42 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache")
 			flusher := w.(http.Flusher)
 
-			displayHistory := history
 			headerSize := len(htmlHeader)
 			historySize := len(html.EscapeString(history))
 			querySize := len(html.EscapeString(query))
 			currentSize := headerSize + historySize + querySize + 10
 
-			// Browser streaming needs significant content - working version used 6KB
-			const minThreshold = 6144 // 6KB threshold (matching what worked before)
+			const minThreshold = 6144
+
+			fmt.Fprint(w, htmlHeader)
+			
 			if currentSize < minThreshold {
-				// Each zero-width space is 3 bytes in UTF-8
 				paddingNeeded := (minThreshold - currentSize) / 3
 				if paddingNeeded > 0 {
 					padding := strings.Repeat("\u200B", paddingNeeded)
-					displayHistory = padding + history
+					fmt.Fprint(w, padding)
 				}
 			}
-
-			fmt.Fprint(w, htmlHeader)
-			fmt.Fprintf(w, "%sQ: %s\nA: ", html.EscapeString(displayHistory), html.EscapeString(query))
+			
+			if history != "" {
+				histParts := strings.Split("\n"+history, "\nQ: ")
+				for _, part := range histParts[1:] {
+					if i := strings.Index(part, "\nA: "); i >= 0 {
+						question := part[:i]
+						answer := part[i+4:]
+						answer = strings.TrimRight(answer, "\n")
+						fmt.Fprintf(w, "<div class=\"q\">%s</div>\n", html.EscapeString(question))
+						fmt.Fprintf(w, "<div class=\"a\">%s</div>\n", answer)
+					}
+				}
+			}
+			fmt.Fprintf(w, "<div class=\"q\">%s</div>\n<div class=\"a\">", html.EscapeString(query))
 			flusher.Flush()
 
 			ch := make(chan string)
 			go func() {
-				if _, err := LLM(prompt, ch); err != nil {
+				htmlPrompt := htmlPromptPrefix + prompt
+			if _, err := LLM(htmlPrompt, ch); err != nil {
 					ch <- err.Error()
 					close(ch)
 				}
@@ -143,19 +158,19 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 			response := ""
 			for chunk := range ch {
-				if _, err := fmt.Fprint(w, html.EscapeString(chunk)); err != nil {
+				if _, err := fmt.Fprint(w, chunk); err != nil {
 					return
 				}
 				response += chunk
 				flusher.Flush()
 			}
+			fmt.Fprint(w, "</div>\n")
 
 			finalHistory := history + fmt.Sprintf("Q: %s\nA: %s\n\n", query, response)
 			fmt.Fprintf(w, htmlFooterTemplate, html.EscapeString(finalHistory))
 			return
 		}
 
-		// Plain text streaming for curl
 		userAgent := r.Header.Get("User-Agent")
 		isCurl := strings.Contains(userAgent, "curl") && !wantsHTML && !wantsJSON && !wantsStream
 		if isCurl {
@@ -185,7 +200,11 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		response, err := LLM(prompt, nil)
+		promptToUse := prompt
+		if wantsHTML {
+			promptToUse = htmlPromptPrefix + prompt
+		}
+		response, err := LLM(promptToUse, nil)
 		if err != nil {
 			content = err.Error()
 			errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
@@ -252,7 +271,16 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	} else if wantsHTML && query == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, htmlHeader)
-		fmt.Fprint(w, html.EscapeString(content))
+		parts := strings.Split("\n"+content, "\nQ: ")
+		for _, part := range parts[1:] {
+			if i := strings.Index(part, "\nA: "); i >= 0 {
+				question := part[:i]
+				answer := part[i+4:]
+				answer = strings.TrimRight(answer, "\n")
+				fmt.Fprintf(w, "<div class=\"q\">%s</div>\n", html.EscapeString(question))
+				fmt.Fprintf(w, "<div class=\"a\">%s</div>\n", answer)
+			}
+		}
 
 		fmt.Fprintf(w, htmlFooterTemplate, html.EscapeString(content))
 	} else {
