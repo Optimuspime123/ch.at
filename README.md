@@ -17,8 +17,8 @@ ssh ch.at
 # DNS tunneling
 dig @ch.at "what-is-2+2" TXT
 
-# API (OpenAI-compatible)
-curl ch.at/v1/chat/completions
+# API (OpenAI-compatible, see https://platform.openai.com/docs/api-reference/chat/create)
+curl ch.at/v1/chat/completions --data '{"messages": [{"role": "user", "content": "What is curl? Be brief."}]}'
 ```
 
 ## Design
