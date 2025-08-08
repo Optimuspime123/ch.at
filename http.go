@@ -59,6 +59,7 @@ func StartHTTPSServer(port int, certFile, keyFile string) error {
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if !rateLimitAllow(r.RemoteAddr) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
@@ -314,6 +315,7 @@ type Choice struct {
 }
 
 func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if !rateLimitAllow(r.RemoteAddr) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
