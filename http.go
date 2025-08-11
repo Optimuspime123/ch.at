@@ -18,11 +18,13 @@ const htmlHeader = `<!DOCTYPE html>
     <title>ch.at</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { text-align: center; margin: 40px; }
-        .chat { text-align: left; max-width: 600px; margin: 20px auto; padding: 20px; }
-        .q { margin-bottom: 10px; }
-        .a { margin-bottom: 20px; }
-        input[type="text"] { width: 300px; }
+        body { text-align: center; margin: 2.5rem; }
+        .chat { text-align: left; max-width: 600px; margin: 1.25rem auto; }
+        .q { padding: 1.25rem; background: #EEE; font-style: italic; font-size: large; }
+        .a { padding: 0.5rem 1.25rem; }
+        form { max-width: 568px; margin: 0 auto 3rem; display: flex; gap: .5rem; }
+        input[type="text"] { width: 100%; padding: .5rem; }
+        input[type="submit"] { padding: .5rem; }
     </style>
 </head>
 <body>
