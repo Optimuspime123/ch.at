@@ -14,18 +14,8 @@ import (
 const (
 	// Option 1: OpenAI API
 	apiKey    = "YOUR_API_KEY_HERE"
-	apiURL    = "https://api.openai.com/v1/chat/completions"
-	modelName = "gpt-3.5-turbo" // or gpt-4, etc.
-
-	// Option 2: Anthropic Claude API (uncomment to use)
-	// apiKey     = "YOUR_API_KEY_HERE"
-	// apiURL     = "https://api.anthropic.com/v1/messages"
-	// modelName  = "claude-3-haiku" // or claude-3-opus, etc.
-
-	// Option 3: Local LLM (uncomment to use)
-	// apiKey     = "" // No API key needed for local models
-	// apiURL     = "http://localhost:11434/api/chat" // Ollama example
-	// modelName  = "llama2" // or mixtral, phi, etc.
+	apiURL    = "https://api.groq.com/openai/v1/chat/completions" //groq for speed
+	modelName = "openai/gpt-oss-20b" // 120b works but slower 
 )
 
 // LLM calls the language model. If stream is nil, returns complete response via return value.
