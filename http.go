@@ -318,13 +318,22 @@ type Choice struct {
 
 func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if !rateLimitAllow(r.RemoteAddr) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 
 	if r.Method != "POST" {
-		w.Header().Set("Allow", "POST")
+		w.Header().Set("Allow", "POST, OPTIONS")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
