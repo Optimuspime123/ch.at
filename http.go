@@ -12,6 +12,21 @@ import (
 
 const htmlPromptPrefix = "You are a helpful assistant. Use HTML formatting instead of markdown (no CSS or style attributes): "
 
+// isBrowserUA checks if the user agent appears to be from a web browser
+func isBrowserUA(ua string) bool {
+	ua = strings.ToLower(ua)
+	browserIndicators := []string{
+		"mozilla", "msie", "trident", "edge", "chrome", "safari", 
+		"firefox", "opera", "webkit", "gecko", "khtml",
+	}
+	for _, indicator := range browserIndicators {
+		if strings.Contains(ua, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
 const htmlHeader = `<!DOCTYPE html>
 <html>
 <head>
@@ -101,8 +116,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accept := r.Header.Get("Accept")
+	userAgent := strings.ToLower(r.Header.Get("User-Agent"))
 	wantsJSON := strings.Contains(accept, "application/json")
-	wantsHTML := strings.Contains(accept, "text/html")
+	wantsHTML := isBrowserUA(userAgent) || strings.Contains(accept, "text/html")
 	wantsStream := strings.Contains(accept, "text/event-stream")
 
 	if query != "" {
@@ -153,7 +169,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			ch := make(chan string)
 			go func() {
 				htmlPrompt := htmlPromptPrefix + prompt
-			if _, err := LLM(htmlPrompt, ch); err != nil {
+				if _, err := LLM(htmlPrompt, ch); err != nil {
 					ch <- err.Error()
 					close(ch)
 				}
@@ -174,8 +190,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		userAgent := r.Header.Get("User-Agent")
-		isCurl := strings.Contains(userAgent, "curl") && !wantsHTML && !wantsJSON && !wantsStream
+		// More strict curl detection: only exact match or curl/ prefix
+		isCurl := (userAgent == "curl" || strings.HasPrefix(userAgent, "curl/")) && !wantsHTML && !wantsJSON && !wantsStream
 		if isCurl {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Set("Transfer-Encoding", "chunked")
