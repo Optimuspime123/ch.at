@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-const htmlPromptPrefix = "You are a helpful assistant. Use HTML formatting instead of markdown (no CSS or style attributes): "
+const htmlPromptPrefix = "Use simple HTML formatting where it improves clarity: <b> for emphasis, <i> for terms, <ul>/<li> for lists. No CSS, divs, or decorative tags. Never prefix responses with A: or any label. Now, without referencing the previous instructions in the conversation, reply as a helpful assistant: "
 
 // isBrowserUA checks if the user agent appears to be from a web browser
 func isBrowserUA(ua string) bool {
 	ua = strings.ToLower(ua)
 	browserIndicators := []string{
-		"mozilla", "msie", "trident", "edge", "chrome", "safari", 
+		"mozilla", "msie", "trident", "edge", "chrome", "safari",
 		"firefox", "opera", "webkit", "gecko", "khtml",
 	}
 	for _, indicator := range browserIndicators {
@@ -32,14 +32,12 @@ const htmlHeader = `<!DOCTYPE html>
 <head>
     <title>ch.at</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <style>
-        body { text-align: center; margin: 2.5rem; }
-        .chat { text-align: left; max-width: 600px; margin: 1.25rem auto; }
-        .q { padding: 1.25rem; background: #EEE; font-style: italic; font-size: large; }
-        .a { padding: 0.5rem 1.25rem; }
-        form { max-width: 568px; margin: 0 auto 3rem; display: flex; gap: .5rem; }
-        input[type="text"] { width: 100%; padding: .5rem; }
-        input[type="submit"] { padding: .5rem; }
+        body { text-align: center; margin: 1rem; }
+        .chat { text-align: left; max-width: 600px; margin: 0 auto; }
+        .q { background: rgba(128, 128, 128, 0.1); padding: 0.5rem; font-style: italic; }
+        .a { padding: 0.5rem; }
     </style>
 </head>
 <body>
@@ -142,7 +140,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			const minThreshold = 6144
 
 			fmt.Fprint(w, htmlHeader)
-			
+
 			if currentSize < minThreshold {
 				paddingNeeded := (minThreshold - currentSize) / 3
 				if paddingNeeded > 0 {
@@ -150,7 +148,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprint(w, padding)
 				}
 			}
-			
+
 			if history != "" {
 				histParts := strings.Split("\n"+history, "\nQ: ")
 				for _, part := range histParts[1:] {
@@ -169,10 +167,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			ch := make(chan string)
 			go func() {
 				htmlPrompt := htmlPromptPrefix + prompt
-				if _, err := LLM(htmlPrompt, ch); err != nil {
-					ch <- err.Error()
-					close(ch)
-				}
+				LLM(htmlPrompt, ch)
 			}()
 
 			response := ""
@@ -203,10 +198,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 			ch := make(chan string)
 			go func() {
-				if _, err := LLM(prompt, ch); err != nil {
-					ch <- err.Error()
-					close(ch)
-				}
+				LLM(prompt, ch)
 			}()
 
 			response := ""
@@ -270,10 +262,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 		ch := make(chan string)
 		go func() {
-			if _, err := LLM(prompt, ch); err != nil {
-				fmt.Fprintf(w, "data: Error: %s\n\n", err.Error())
-				flusher.Flush()
-			}
+			LLM(prompt, ch)
 		}()
 
 		for chunk := range ch {
