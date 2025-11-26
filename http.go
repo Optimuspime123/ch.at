@@ -164,23 +164,23 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "<div class=\"q\">%s</div>\n<div class=\"a\">", html.EscapeString(query))
 			flusher.Flush()
 
-			ch := make(chan string)
+			ch := make(chan string, 10)
 			go func() {
 				htmlPrompt := htmlPromptPrefix + prompt
 				LLM(htmlPrompt, ch)
 			}()
 
-			response := ""
+			var response strings.Builder
 			for chunk := range ch {
 				if _, err := fmt.Fprint(w, chunk); err != nil {
 					return
 				}
-				response += chunk
+				response.WriteString(chunk)
 				flusher.Flush()
 			}
 			fmt.Fprint(w, "</div>\n")
 
-			finalHistory := history + fmt.Sprintf("Q: %s\nA: %s\n\n", query, response)
+			finalHistory := history + fmt.Sprintf("Q: %s\nA: %s\n\n", query, response.String())
 			fmt.Fprintf(w, htmlFooterTemplate, html.EscapeString(finalHistory))
 			return
 		}
@@ -196,15 +196,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "Q: %s\nA: ", query)
 			flusher.Flush()
 
-			ch := make(chan string)
+			ch := make(chan string, 10)
 			go func() {
 				LLM(prompt, ch)
 			}()
 
-			response := ""
 			for chunk := range ch {
-				fmt.Fprint(w, chunk)
-				response += chunk
+				if _, err := fmt.Fprint(w, chunk); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 			fmt.Fprint(w, "\n")
@@ -260,13 +260,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ch := make(chan string)
+		ch := make(chan string, 10)
 		go func() {
 			LLM(prompt, ch)
 		}()
 
 		for chunk := range ch {
-			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", chunk); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 		fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -368,7 +370,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ch := make(chan string)
+		ch := make(chan string, 10)
 		go LLM(messages, ch)
 
 		for chunk := range ch {
@@ -387,7 +389,9 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, "data: Failed to marshal response\n\n")
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 		fmt.Fprintf(w, "data: [DONE]\n\n")

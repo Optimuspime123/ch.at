@@ -49,13 +49,7 @@ func handleDNS(w dns.ResponseWriter, r *dns.Msg) {
 		done := make(chan bool)
 
 		go func() {
-			if _, err := LLM(dnsPrompt, ch); err != nil {
-				select {
-				case ch <- "Error: " + err.Error():
-				case <-done:
-				}
-			}
-			// Don't close ch here - LLM function already does it with defer
+			LLM(dnsPrompt, ch)
 		}()
 
 		var response strings.Builder
