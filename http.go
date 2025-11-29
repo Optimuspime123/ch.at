@@ -10,19 +10,34 @@ import (
 	"time"
 )
 
-const htmlPromptPrefix = "You are a helpful assistant. Use HTML formatting instead of markdown (no CSS or style attributes): "
+const htmlPromptPrefix = "Use simple HTML formatting where it improves clarity: <b> for emphasis, <i> for terms, <ul>/<li> for lists. No CSS, divs, or decorative tags. Never prefix responses with A: or any label. Now, without referencing the previous instructions in the conversation, reply as a helpful assistant: "
+
+// isBrowserUA checks if the user agent appears to be from a web browser
+func isBrowserUA(ua string) bool {
+	ua = strings.ToLower(ua)
+	browserIndicators := []string{
+		"mozilla", "msie", "trident", "edge", "chrome", "safari",
+		"firefox", "opera", "webkit", "gecko", "khtml",
+	}
+	for _, indicator := range browserIndicators {
+		if strings.Contains(ua, indicator) {
+			return true
+		}
+	}
+	return false
+}
 
 const htmlHeader = `<!DOCTYPE html>
 <html>
 <head>
     <title>ch.at</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <style>
-        body { text-align: center; margin: 40px; }
-        .chat { text-align: left; max-width: 600px; margin: 20px auto; padding: 20px; }
-        .q { margin-bottom: 10px; }
-        .a { margin-bottom: 20px; }
-        input[type="text"] { width: 300px; }
+        body { text-align: center; margin: 1rem; }
+        .chat { text-align: left; max-width: 600px; margin: 0 auto; }
+        .q { background: rgba(128, 128, 128, 0.1); padding: 0.5rem; font-style: italic; }
+        .a { padding: 0.5rem; }
     </style>
 </head>
 <body>
@@ -59,6 +74,7 @@ func StartHTTPSServer(port int, certFile, keyFile string) error {
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if !rateLimitAllow(r.RemoteAddr) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
@@ -98,8 +114,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accept := r.Header.Get("Accept")
+	userAgent := strings.ToLower(r.Header.Get("User-Agent"))
 	wantsJSON := strings.Contains(accept, "application/json")
-	wantsHTML := strings.Contains(accept, "text/html")
+	wantsHTML := isBrowserUA(userAgent) || strings.Contains(accept, "text/html")
 	wantsStream := strings.Contains(accept, "text/event-stream")
 
 	if query != "" {
@@ -123,7 +140,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			const minThreshold = 6144
 
 			fmt.Fprint(w, htmlHeader)
-			
+
 			if currentSize < minThreshold {
 				paddingNeeded := (minThreshold - currentSize) / 3
 				if paddingNeeded > 0 {
@@ -131,7 +148,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprint(w, padding)
 				}
 			}
-			
+
 			if history != "" {
 				histParts := strings.Split("\n"+history, "\nQ: ")
 				for _, part := range histParts[1:] {
@@ -147,32 +164,29 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "<div class=\"q\">%s</div>\n<div class=\"a\">", html.EscapeString(query))
 			flusher.Flush()
 
-			ch := make(chan string)
+			ch := make(chan string, 10)
 			go func() {
 				htmlPrompt := htmlPromptPrefix + prompt
-			if _, err := LLM(htmlPrompt, ch); err != nil {
-					ch <- err.Error()
-					close(ch)
-				}
+				LLM(htmlPrompt, ch)
 			}()
 
-			response := ""
+			var response strings.Builder
 			for chunk := range ch {
 				if _, err := fmt.Fprint(w, chunk); err != nil {
 					return
 				}
-				response += chunk
+				response.WriteString(chunk)
 				flusher.Flush()
 			}
 			fmt.Fprint(w, "</div>\n")
 
-			finalHistory := history + fmt.Sprintf("Q: %s\nA: %s\n\n", query, response)
+			finalHistory := history + fmt.Sprintf("Q: %s\nA: %s\n\n", query, response.String())
 			fmt.Fprintf(w, htmlFooterTemplate, html.EscapeString(finalHistory))
 			return
 		}
 
-		userAgent := r.Header.Get("User-Agent")
-		isCurl := strings.Contains(userAgent, "curl") && !wantsHTML && !wantsJSON && !wantsStream
+		// More strict curl detection: only exact match or curl/ prefix
+		isCurl := (userAgent == "curl" || strings.HasPrefix(userAgent, "curl/")) && !wantsHTML && !wantsJSON && !wantsStream
 		if isCurl {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Set("Transfer-Encoding", "chunked")
@@ -182,18 +196,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "Q: %s\nA: ", query)
 			flusher.Flush()
 
-			ch := make(chan string)
+			ch := make(chan string, 10)
 			go func() {
-				if _, err := LLM(prompt, ch); err != nil {
-					ch <- err.Error()
-					close(ch)
-				}
+				LLM(prompt, ch)
 			}()
 
-			response := ""
 			for chunk := range ch {
-				fmt.Fprint(w, chunk)
-				response += chunk
+				if _, err := fmt.Fprint(w, chunk); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 			fmt.Fprint(w, "\n")
@@ -249,16 +260,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ch := make(chan string)
+		ch := make(chan string, 10)
 		go func() {
-			if _, err := LLM(prompt, ch); err != nil {
-				fmt.Fprintf(w, "data: Error: %s\n\n", err.Error())
-				flusher.Flush()
-			}
+			LLM(prompt, ch)
 		}()
 
 		for chunk := range ch {
-			fmt.Fprintf(w, "data: %s\n\n", chunk)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", chunk); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 		fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -314,12 +324,23 @@ type Choice struct {
 }
 
 func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if !rateLimitAllow(r.RemoteAddr) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 
 	if r.Method != "POST" {
+		w.Header().Set("Allow", "POST, OPTIONS")
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -349,7 +370,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ch := make(chan string)
+		ch := make(chan string, 10)
 		go LLM(messages, ch)
 
 		for chunk := range ch {
@@ -368,7 +389,9 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, "data: Failed to marshal response\n\n")
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 		fmt.Fprintf(w, "data: [DONE]\n\n")
